@@ -14,3 +14,7 @@ Static HTML and CSS; no build step or server-side dependencies. GitHub Pages ser
 
 The full-resolution Pandora original and its generation prompt are preserved in the author's local `game-room-art` workspace folder.
 The Tacticon game room — Breakfast in Tokyo and Pandora: Survive the Wreck.
+
+## The Chopping Mall
+
+[Play The Chopping Mall](https://drtacticon.pages.dev/the-chopping-mall/) or [GitHub Pages](https://drtacticon.github.io/the-chopping-mall/). The game is stored in `the-chopping-mall/` and is served directly without a build step. It includes the supplied map, rulebook, counters, and approved original zombie-fight artwork. Each survivor acts once per round before the zombie turn.
