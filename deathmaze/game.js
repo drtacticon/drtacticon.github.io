@@ -31,7 +31,7 @@ const segmentEdges = [
   "N", "N", "N", "N", "N", "NES", "EW", "NW", "NE", "NW",
   "E", "ESW", "ESW", "EW", "EW", "NEW", "ESW", "ESW", "EW", "ESW",
   "NESW", "NESW", "NESW", "NESW", "NESW", "ESW", "NEW", "SW", "NE", "NW",
-  "EW", "EW", "EW", "ESW", "EW", "EW", "ESW", "ESW", "EW", "EW"
+  "ESW", "ESW", "ESW", "ESW", "EW", "EW", "ESW", "ESW", "EW", "EW"
 ];
 function segmentAt(position) {
   return state.tiles[position]?.find(piece => counters[piece.id].cup);
