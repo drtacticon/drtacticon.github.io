@@ -394,6 +394,24 @@ function exitMaze() {
 function magicActions() {
   return living().flatMap(hero => {
     const actions = [];
+    if (state.party && canCast(hero, "Lock")) {
+      const [x, y] = state.party.split(",").map(Number);
+      for (const [direction, [dx, dy]] of directions.entries()) {
+        const position = key(x + dx, y + dy);
+        const next = segmentAt(position);
+        if (edge(segmentAt(state.party), direction) !== "door" ||
+            (next && edge(next, (direction + 2) % 4) !== "door")) continue;
+        const lock = doorKey(state.party, position);
+        if (state.lockedDoors?.includes(lock)) continue;
+        const heading = ["north", "east", "south", "west"][direction];
+        actions.push({ label: heroName(hero) + " locks the " + heading + " door", run: () => {
+          spendSpell(hero, "Lock");
+          (state.lockedDoors ||= []).push(lock);
+          addLog("The " + heading + " door is locked.");
+          state.scene = null;
+        } });
+      }
+    }
     if (canCast(hero, "Heal")) {
       for (const target of living()) actions.push({ label: heroName(hero) + " casts Heal on " + heroName(target),
         run: () => { spendSpell(hero,"Heal"); heal(target, rollDice("Heal")); state.scene = null; } });

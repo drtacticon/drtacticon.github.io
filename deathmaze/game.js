@@ -25,15 +25,16 @@ counters.push({ id: gateId, cup: "Corridor", name: "Entrance gate" });
 const starterIds = [201, 202, 203];
 for (const id of starterIds) counters.push({ id, cup: "Corridor", name: "Approach corridor" });
 const directions = [[0,-1], [1,0], [0,1], [-1,0]];
-const edgeLetters = "NESW";
+// Counter edges in north, east, south, west order. D is a narrow doorway, H a wide hallway.
 const segmentEdges = [
-  "NEW", "EW", "EW", "NEW", "EW", "EW", "EW", "EW",
-  "S", "S", "NS", "S", "S", "S", "S", "S", "S", "S",
-  "N", "N", "N", "N", "N", "NES", "EW", "NW", "NE", "NW",
-  "E", "ESW", "ESW", "EW", "EW", "NEW", "ESW", "ESW", "EW", "ESW",
-  "NESW", "NESW", "NESW", "NESW", "NESW", "ESW", "NEW", "SW", "NE", "NW",
-  "ESW", "ESW", "ESW", "ESW", "EW", "EW", "ESW", "ESW", "EW", "EW"
+  "DHDH","DH-H","DH-H","DH-H","HD-H","HH-D","-H-H","-H-H",
+  "--D-","--D-","D-D-","--D-","--D-","--D-","--D-","--D-","--D-","--D-",
+  "D---","D---","D---","D---","D---","DDD-","-D-D","D--D","DD--","D--D",
+  "-D--","-D-D","-D-D","-D-D","-D-D","DD-D","-DDD","-DDD","-D-D","--DD",
+  "DD-D","DD-D","DDDD","DDDD","DDDD","-DDD","HHDD","--HH","DHH-","D-HH",
+  "-HDH","-HDH","DHDH","DHDH","DH-H","DH-H","DHDH","-HDH","-H-H","-H-H"
 ];
+
 function segmentAt(position) {
   return state.tiles[position]?.find(piece => counters[piece.id].cup);
 }
@@ -42,12 +43,11 @@ function edge(piece, direction) {
   const side = (direction - piece.rotation + 4) % 4;
   if (piece.id === gateId) return side === 1 ? "open" : "";
   if (piece.id > gateId) return side % 2 ? "open" : "";
-  const index = piece.id % 100;
-  if (!segmentEdges[index - 42]?.includes(edgeLetters[side])) return "";
-  if (index >= 50 && index < 86) return "door";
-  if (index === 86 && side === 0) return "door";
-  if (index >= 90 && side === 2) return "door";
-  return "open";
+  const connector = segmentEdges[piece.id % 100 - 42]?.[side];
+  return connector === "D" ? "door" : connector === "H" ? "open" : "";
+}
+function doorKey(from, to) {
+  return [from, to].sort().join("|");
 }
 const sheetRows = [183, 231, 305, 353, 422, 475, 550, 599, 671, 720];
 
@@ -67,7 +67,7 @@ function load() {
 
 let state = load();
 state.log = state.log.filter(line => !line.startsWith("Wandering encounter check · ") &&
-  !/^Corridor \d+ · Sheet [12] placed via an open corridor\.$/.test(line));
+  !/^(Room|Corridor|Corridor redirect) (?:\d+ )?· Sheet [12] placed via (?:an open corridor|a doorway)\.$/.test(line));
 let history = [];
 let message = "";
 function renderAndSave() {
@@ -124,7 +124,9 @@ function moveType(x, y) {
   if (direction < 0) return "";
   const exit = edge(segmentAt(state.party), direction);
   if (!exit) return "";
-  const neighbor = segmentAt(key(x, y));
+  const position = key(x, y);
+  if (exit === "door" && state.lockedDoors?.includes(doorKey(state.party, position))) return "locked";
+  const neighbor = segmentAt(position);
   if (!neighbor) return fittingSegments(x, y, direction, exit).length ? exit : "";
   const entry = edge(neighbor, (direction + 2) % 4);
   return entry === exit ? exit : "";
@@ -162,7 +164,6 @@ function explore(position, x, y, exit) {
     checkpoint();
     state.available = state.available.filter(availableId => availableId !== id);
     state.tiles[position] = [...(state.tiles[position] || []), piece];
-    if (exit === "door") addLog(label(id) + " placed via a doorway.");
   } else {
     checkpoint();
   }
@@ -171,7 +172,7 @@ function explore(position, x, y, exit) {
   history = [];
   if (position === state.entrance) state.scene = { phase: "exit" };
   else openScene(position, !existing, exit);
-  status("Choose a highlighted square. Green is an open corridor and gold is a doorway.");
+  status("Green: hallway · Yellow: doorway · Red: locked door.");
 }
 
 function cellClick(position, x, y) {
@@ -190,6 +191,7 @@ function cellClick(position, x, y) {
     return status("Counter placed. Click a neighboring segment to move the party.");
   }
   const exit = moveType(x, y);
+  if (exit === "locked") return status("That door is locked.");
   if (exit) return explore(position, x, y, exit);
   state.selected = position;
   status(stack?.length ? label(stack.at(-1).id) : "Choose a draw cup or take a counter from the supply.");
@@ -233,7 +235,7 @@ function renderBoard() {
       cell.classList.toggle("party", position === state.party);
       cell.setAttribute("aria-pressed", String(position === state.selected));
       cell.setAttribute("aria-label", [position, ...stack.map(piece => label(piece.id)),
-        exit ? (exit === "door" ? "Move through doorway" : "Move through corridor") : "", position === state.party ? "Party" : "", position === state.entrance ? "Entrance" : ""].filter(Boolean).join(" · "));
+        exit ? ({ door: "Move through doorway", open: "Move through hallway", locked: "Locked door" }[exit]) : "", position === state.party ? "Party" : "", position === state.entrance ? "Entrance" : ""].filter(Boolean).join(" · "));
       cell.onclick = () => cellClick(position, x, y);
       cell.append(...stack.map(art));
       cells.push(cell);
@@ -516,7 +518,7 @@ function render() {
   renderBoard();
   $("status").textContent = message || (state.entrance === null
     ? "Add your adventurers, then place the entrance gate."
-    : "Choose a highlighted square. Green is an open corridor and gold is a doorway.");
+    : "Green: hallway · Yellow: doorway · Red: locked door.");
   $("start").disabled = Boolean(state.entrance || state.held);
   $("undo").disabled = !history.length || Boolean(state.scene);
   $("party-treasure").textContent = state.treasure || 0;
