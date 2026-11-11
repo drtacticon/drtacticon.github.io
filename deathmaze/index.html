@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DeathMaze • Digital Tabletop</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 <header><div><a href="../">← Game Room</a><span class="edition">SIMULATIONS PUBLICATIONS · 1979</span><h1>DeathMaze</h1><p>Heroic Adventure in the Corridors of Doom</p></div><a href="https://www.spigames.net/PDFv3/DeathMaze%20.pdf" target="_blank" rel="noopener">Open SPI rulebook ↗</a></header>
 <main>
 <section class="table">
@@ -15,10 +15,15 @@
 <aside>
 <section><h2>Draw cups</h2><div id="cups" class="actions"></div><div id="held"></div></section>
 <section><h2>Counter supply</h2><select id="supply" aria-label="Available counter"></select><button id="take">Take</button></section>
-<section><h2>Dice &amp; log</h2><form id="dice"><input id="formula" aria-label="Dice formula" value="1D6" required><button>Roll</button></form><form id="journal"><input id="note" aria-label="Adventure note" placeholder="Record an encounter or result" required><button>Add</button></form><ol id="log" aria-live="polite"></ol></section>
+<section><h2>Adventure log</h2><p>Party treasure <strong id="party-treasure">0</strong> bezants</p><button id="magic">Use magic</button><form id="journal"><input id="note" aria-label="Adventure note" placeholder="Record an encounter or result" required><button>Add</button></form><ol id="log" aria-live="polite"></ol></section>
 <section class="records"><div class="toolbar"><h2>Marching order</h2><select id="add-class" aria-label="New adventurer class"><option>Hero</option><option>Thief</option><option>Wizard</option></select><button id="add">Add adventurer</button></div><div id="heroes"></div></section>
 </aside>
 </main>
-<footer>Original counter artwork from the SPI Rules of Play. Use the rulebook and charts to resolve traps, encounters, combat, and treasure.</footer>
-<script src="game.js"></script>
+<footer>Original counter artwork from the SPI Rules of Play. Dice roll automatically. Choose how your party responds when prompted.</footer>
+<dialog id="decision" aria-labelledby="decision-title" aria-describedby="decision-detail">
+  <h2 id="decision-title"></h2><p id="decision-detail"></p>
+  <p id="decision-roll"></p><div id="decision-actions"></div>
+</dialog>
+<script src="adventure.js?v=1"></script>
+<script src="game.js?v=2"></script>
 </html>

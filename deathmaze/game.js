@@ -113,7 +113,7 @@ function take(id) {
 }
 
 function moveType(x, y) {
-  if (!state.party || state.held) return "";
+  if (!state.party || state.held || state.scene || state.ended || !living().length) return "";
   const [px, py] = state.party.split(",").map(Number);
   const direction = directions.findIndex(([dx, dy]) => px + dx === x && py + dy === y);
   if (direction < 0) return "";
@@ -171,7 +171,10 @@ function explore(position, x, y, exit) {
   }
   state.party = state.selected = position;
   addLog("Party moved to " + position + ".");
-  status("Resolve exploration checks using §5.2 and the Exploration Table.");
+  history = [];
+  if (position === state.entrance) state.scene = { phase: "exit" };
+  else openScene(position, !existing, exit);
+  status("Choose a highlighted square. Green is an open corridor and gold is a doorway.");
 }
 
 function cellClick(position, x, y) {
@@ -443,7 +446,10 @@ function render() {
     ? "Add your adventurers, then place the entrance gate."
     : "Choose a highlighted square. Green is an open corridor and gold is a doorway.");
   $("start").disabled = Boolean(state.entrance || state.held);
-  $("undo").disabled = !history.length;
+  $("undo").disabled = !history.length || Boolean(state.scene);
+  $("party-treasure").textContent = state.treasure || 0;
+  $("magic").disabled = state.ended || Boolean(state.scene) || !magicActions().length;
+  $("decision").oncancel = event => event.preventDefault();
   $("cups").replaceChildren(...["Corridor", "Room"].map(cup => {
     const count = state.available.filter(id => counters[id].cup === cup).length;
     const counter = document.createElement("span");
@@ -464,9 +470,11 @@ function render() {
     return item;
   }));
   renderHeroes();
+  renderScene();
 }
 $("start").onclick = () => {
   if (state.entrance || state.held) return;
+  if (!living().length) return status("Add at least one adventurer before entering the maze.");
   checkpoint();
   state.held = { id: gateId, rotation: 0 };
   status("Place the gate corridor to begin the adventure.");
@@ -514,17 +522,10 @@ $("journal").onsubmit = event => {
   $("note").value = "";
   renderAndSave();
 };
-$("dice").onsubmit = event => {
-  event.preventDefault();
-  const formula = $("formula").value.toUpperCase().replace(/\s/g, "");
-  const match = /^(\d{1,2})?D([36])(?:([+\-X×*])(\d{1,3}))?$/.exec(formula);
-  if (!match || Number(match[1]) === 0) return status("Enter a roll such as 2D6, 1D3+2, or 3D6×5.");
-  const rolls = Array.from({ length: Number(match[1] || 1) }, () => 1 + Math.floor(Math.random() * Number(match[2])));
-  const total = rolls.reduce((sum, roll) => sum + roll, 0);
-  const modifier = Number(match[4] || 0);
-  const result = !match[3] ? total : match[3] === "+" ? total + modifier :
-    match[3] === "-" ? total - modifier : total * modifier;
-  addLog(formula + " → " + result + " [" + rolls.join(", ") + "]");
+$("magic").onclick = () => {
+  if (state.scene || state.ended || !magicActions().length) return;
+  history = [];
+  state.scene = { phase: "magic" };
   renderAndSave();
 };
 render();
