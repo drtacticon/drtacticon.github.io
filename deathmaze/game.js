@@ -123,48 +123,40 @@ function moveType(x, y) {
   const exit = edge(segmentAt(state.party), direction);
   if (!exit) return "";
   const neighbor = segmentAt(key(x, y));
-  if (!neighbor) return exit;
+  if (!neighbor) return fittingSegments(x, y, direction, exit).length ? exit : "";
   const entry = edge(neighbor, (direction + 2) % 4);
-  return entry === exit || (entry && (neighbor.joinedFrom === state.party ||
-    segmentAt(state.party).joinedFrom === key(x, y))) ? exit : "";
+  return entry === exit ? exit : "";
+}
+
+function fittingSegments(x, y, direction, exit) {
+  const entry = (direction + 2) % 4;
+  const neighbors = directions.map(([dx, dy]) => segmentAt(key(x + dx, y + dy)));
+  const used = new Set(Object.values(state.tiles).flatMap(stack => stack.map(piece => piece.id)));
+  const starter = exit === "open" && segmentAt(state.entrance)?.id === gateId &&
+    starterIds.find(id => !used.has(id));
+  const pool = starter ? [starter] : state.available.filter(id => {
+    const index = id % 100;
+    return exit === "door" ? index >= 50 && index < 86 : counters[id].cup === "Corridor";
+  });
+  return pool.flatMap(id => {
+    for (let rotation = 0; rotation < 4; rotation++) {
+      const piece = { id, rotation };
+      if (edge(piece, entry) === exit && neighbors.every((neighbor, side) =>
+        !neighbor || edge(piece, side) === edge(neighbor, (side + 2) % 4))) return [piece];
+    }
+    return [];
+  });
 }
 
 function explore(position, x, y, exit) {
   const existing = segmentAt(position);
   const [px, py] = state.party.split(",").map(Number);
   const direction = directions.findIndex(([dx, dy]) => px + dx === x && py + dy === y);
-  const entry = (direction + 2) % 4;
   if (!existing) {
-    const used = new Set(Object.values(state.tiles).flatMap(stack => stack.map(piece => piece.id)));
-    const starter = segmentAt(state.entrance)?.id === gateId && starterIds.find(id => !used.has(id));
-    const corridorPool = state.available.filter(id => counters[id].cup === "Corridor");
-    const roomPool = state.available.filter(id => counters[id].cup === "Room");
-    const needsCorridor = exit === "open" || directions.some(([dx, dy], side) =>
-      edge(segmentAt(key(x + dx, y + dy)), (side + 2) % 4) === "open");
-    const redirect = id => id % 100 >= 42 && id % 100 < 50;
-    const pool = starter ? [starter] : needsCorridor ? corridorPool :
-      roomPool.flatMap(id => redirect(id) && corridorPool.length ? corridorPool : [id]);
-    const candidates = [...new Set(pool)].flatMap(id => {
-      const rotations = [];
-      for (let rotation = 0; rotation < 4; rotation++) {
-        const piece = { id, rotation, joinedFrom: state.party };
-        const opening = edge(piece, entry);
-        if (!opening || (exit === "open" && opening !== "open")) continue;
-        const mismatches = directions.filter(([dx, dy], side) => {
-          if (side === entry) return false;
-          const neighbor = segmentAt(key(x + dx, y + dy));
-          return neighbor && edge(piece, side) !== edge(neighbor, (side + 2) % 4);
-        }).length;
-        rotations.push({ piece, mismatches });
-      }
-      return rotations;
-    });
+    const candidates = fittingSegments(x, y, direction, exit);
     if (!candidates.length) return status("No remaining segment can connect here.");
-    const best = Math.min(...candidates.map(candidate => candidate.mismatches));
-    const fitting = candidates.filter(candidate => candidate.mismatches === best);
-    const fittingIds = pool.filter(id => fitting.some(candidate => candidate.piece.id === id));
-    const id = fittingIds[Math.floor(Math.random() * fittingIds.length)];
-    const { piece } = fitting.find(candidate => candidate.piece.id === id);
+    const piece = candidates[Math.floor(Math.random() * candidates.length)];
+    const { id } = piece;
     checkpoint();
     state.available = state.available.filter(availableId => availableId !== id);
     state.tiles[position] = [...(state.tiles[position] || []), piece];
