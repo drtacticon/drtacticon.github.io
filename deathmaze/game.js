@@ -125,7 +125,7 @@ function moveType(x, y) {
   const exit = edge(segmentAt(state.party), direction);
   if (!exit) return "";
   const position = key(x, y);
-  if (exit === "door" && state.lockedDoors?.includes(doorKey(state.party, position))) return "locked";
+  if (exit === "door" && (state.lockedDoors?.includes(doorKey(state.party, position)) || state.peggedDoors?.includes(doorKey(state.party, position)))) return "locked";
   const neighbor = segmentAt(position);
   if (!neighbor) return fittingSegments(x, y, direction, exit).length ? exit : "";
   const entry = edge(neighbor, (direction + 2) % 4);
@@ -167,11 +167,12 @@ function explore(position, x, y, exit) {
   } else {
     checkpoint();
   }
+  const from = state.party;
   state.party = state.selected = position;
   addLog("Party moved to " + position + ".");
   history = [];
   if (position === state.entrance) state.scene = { phase: "exit" };
-  else openScene(position, !existing, exit);
+  else openScene(position, !existing, exit, from);
   status("Green: hallway · Yellow: doorway · Red: locked door.");
 }
 
@@ -192,6 +193,7 @@ function cellClick(position, x, y) {
   }
   const exit = moveType(x, y);
   if (exit === "locked") {
+    if (state.peggedDoors?.includes(doorKey(state.party, position))) return status("This door is pegged shut.");
     if (!living().some(hero => hero.class === "Thief")) return status("A Thief is needed to open this door.");
     state.scene = { phase: "unlock", door: doorKey(state.party, position) };
     return status("Choose a Thief to open the locked door.");
@@ -424,6 +426,13 @@ function renderHeroes() {
       actions.append(button);
     }
     card.append(title, rank, inputs);
+    for (const type of ["potion","medallion"]) {
+      const count = (hero.unknownItems || []).filter(item => item.type === type).length;
+      if (!count) continue;
+      const unknown = document.createElement("p");
+      unknown.textContent = "Unknown " + type + " × " + count;
+      card.append(unknown);
+    }
     if (hero.class === "Wizard") {
       const training = document.createElement("div");
       training.className = "training";
@@ -510,6 +519,9 @@ $("load-party").onclick = () => {
     delete hero.spellWounds;
     delete hero.combatModifier;
     delete hero.strengthBonus;
+    delete hero.cannabis;
+    delete hero.usedRings;
+    delete hero.charmedAllies;
     return hero;
   });
   history = [];
@@ -526,7 +538,7 @@ function render() {
   $("start").disabled = Boolean(state.entrance || state.held);
   $("undo").disabled = !history.length || Boolean(state.scene);
   $("party-treasure").textContent = state.treasure || 0;
-  $("magic").disabled = state.ended || Boolean(state.scene) || !magicActions().length;
+  $("magic").disabled = state.ended || Boolean(state.scene);
   $("decision").oncancel = event => event.preventDefault();
   $("cups").replaceChildren(...["Corridor", "Room"].map(cup => {
     const count = state.available.filter(id => counters[id].cup === cup).length;
@@ -602,7 +614,7 @@ $("journal").onsubmit = event => {
   renderAndSave();
 };
 $("magic").onclick = () => {
-  if (state.scene || state.ended || !magicActions().length) return;
+  if (state.scene || state.ended) return;
   history = [];
   state.scene = { phase: "magic" };
   renderAndSave();

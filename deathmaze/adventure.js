@@ -62,11 +62,17 @@ function combatDamage(weapon, total) {
 function continueScene(phase) {
   state.scene.phase = phase;
 }
-function openScene(position, isNew, exit) {
+function openScene(position, isNew, exit, from) {
   const segment = segmentAt(position);
   const index = segment.id % 100;
   const room = segment.id < gateId && index >= 50 && index < 86;
-  state.scene = { phase: "check", position, room: room && isNew, monsters: [] };
+  const sealed = state.sealedEncounters?.[position];
+  if (sealed) {
+    delete state.sealedEncounters[position];
+    state.scene = { ...sealed, from, exit };
+    return;
+  }
+  state.scene = { phase: "check", position, from, exit, room: room && isNew, monsters: [] };
   if (isNew && exit === "door" && rollDice("Door trap check") === 1) {
     state.scene.afterTrap = "check";
     return continueScene("trap");
@@ -91,6 +97,7 @@ function checkEncounter() {
 function encounter(name, count, room) {
   const scene = state.scene;
   const [, types, attack, dice, bonus] = creatures[name];
+  scene.wandering = !room;
   const kind = types[room ? 0 : 1] || types[0];
   scene.monsters = Array.from({ length: count }, (_, index) => {
     const max = Math.max(0, rollDice(name + " wound points", dice === 0.5 ? 1 : dice, dice === 0.5 ? 3 : 6) + bonus);
@@ -119,7 +126,7 @@ function negotiate(orator) {
   const scene = state.scene;
   if (orator) spendSpell(orator, "Oratory");
   const name = scene.monsters[0].name;
-  const total = rollDice("Negotiation", 2) - creatures[name][0] + (orator ? 4 : 0);
+  const total = rollDice("Negotiation", 2) - creatures[name][0] + (orator ? 4 : 0) + 2 * living().filter(hero => hasItem(hero, "Oratory medallion")).length;
   addLog("Negotiation total · " + total);
   if (total <= 5) {
     addLog("Negotiations fail.");
@@ -132,10 +139,12 @@ function negotiate(orator) {
   scene.negotiated = true;
   continueScene("agreement");
 }
-function trap(hero, detrap) {
+function trap(hero, detrap, sesame = false) {
   const scene = state.scene;
   const rating = Number.parseInt(hero.spells, 10) || 0;
-  if (detrap && rollDice("Detrap · " + heroName(hero)) <= rating) {
+  if (sesame) {
+    addLog("Sesame disarms the trap.");
+  } else if (detrap && rollDice("Detrap · " + heroName(hero)) <= rating) {
     hero.xp = Number(hero.xp || 0) + 10;
     addLog("Trap disarmed. " + heroName(hero) + " gains 10 XP.");
   } else {
@@ -144,10 +153,10 @@ function trap(hero, detrap) {
         case 1: hurt(hero, combatDamage("Bow", rollDice("Arrow attack"))); break;
         case 2: {
           const damage = combatDamage("Bow", rollDice("Poison arrow attack"));
-          hurt(hero, damage + (damage ? rollDice("Arrow poison", 1, 3) : 0));
+          hurt(hero, damage + (damage ? poison(hero, "Arrow poison") : 0));
           break;
         }
-        case 3: hurt(hero, rollDice("Poison gas", 1, 3)); break;
+        case 3: hurt(hero, poison(hero, "Poison gas")); break;
         case 4: living().forEach(target => hurt(target, 1)); break;
         case 5: hurt(hero, 1); break;
         case 6: trigger(); trigger(); break;
@@ -167,10 +176,10 @@ function investigate(hero) {
   const result = rollDice("Investigate " + feature);
   if (feature === "statue") {
     if (result <= 2) return encounter("Gargoyle", 1, true);
-    if (result === 3) return beginLoot([{ gold:0, items:[potionNames[rollDice("Potion") - 1] + " potion"], chest:false }]);
+    if (result === 3) return beginLoot([{ gold:0, items:[unknownItem("potion", potionNames[rollDice(null) - 1] + " potion")], chest:false }]);
     if (result <= 5) awardGold(rollGem() + rollGem());
   } else if (feature === "fountain") {
-    if (result === 1) hurt(hero, rollDice("Fountain poison", 1, 3));
+    if (result === 1) hurt(hero, poison(hero, "Fountain poison"));
     if (result >= 2 && result <= 4) {
       const potion = potionNames[rollDice("Fountain potion") - 1];
       applyPotion(hero, potion);
@@ -205,9 +214,9 @@ function magicItem() {
     () => "+" + bonusRoll("Magic weapon bonus") + " " +
       ["Sword","Hammer","Axe","Bow","Dagger","Throwing Dagger"][rollDice("Magic weapon type") - 1],
     () => "+" + bonusRoll("Armor bonus") + " armor",
-    () => potionNames[rollDice("Potion type") - 1] + " potion",
+    () => unknownItem("potion", potionNames[rollDice(null) - 1] + " potion"),
     () => ["Mustard","Sesame","Spinach","Red Pepper","Cloves","Cannabis"][rollDice("Spice type") - 1],
-    () => ["Neutralize Poison","Neutralize Poison","Potion Appraisal","Oratory","Dexterity","Strangling"][rollDice("Medallion type") - 1] + " medallion",
+    () => unknownItem("medallion", ["Neutralize Poison","Neutralize Poison","Potion Appraisal","Oratory","Dexterity","Strangling"][rollDice(null) - 1] + " medallion"),
     () => ["Resistance +1","Resistance +2","Sleep","Neutralize Poison","Heal","Blast"][rollDice("Ring type") - 1] + " ring"
   ];
   return lists[rollDice("Magic item category") - 1]();
@@ -244,11 +253,23 @@ function nextChest() {
   }
   awardGold(scene.loot.reduce((sum, loot) => sum + loot.gold, 0) - scene.bribe || 0);
   scene.items = scene.loot.flatMap(loot => loot.items);
-  if (scene.items.length) return continueScene("loot");
+  if (scene.items.length) {
+    for (const item of scene.items) addLog("Found · " + itemText(item));
+    return continueScene("loot");
+  }
   finishEncounter();
 }
-function giveItem(hero) {
+function giveItem(hero, test = false) {
   const item = state.scene.items.shift();
+  if (typeof item !== "string") {
+    item.id = state.nextItemId = Math.max(Number(state.nextItemId || 0), ...unknownItems().map(({item}) => item.id || 0)) + 1;
+    (hero.unknownItems ||= []).push(item);
+    if (test) testItem(hero, item, hero);
+    else addLog(heroName(hero) + " takes " + itemText(item) + ".");
+    if (!living().length) return continueScene("defeat");
+    if (!state.scene.items.length) finishEncounter();
+    return;
+  }
   hero.items = [hero.items, item].filter(Boolean).join("\n");
   const armor = /^\+(\d+) armor$/.exec(item);
   if (armor && Number(armor[1]) > Number(hero.armorBonus || 0)) {
@@ -261,7 +282,7 @@ function giveItem(hero) {
   if (!state.scene.items.length) finishEncounter();
 }
 function applyPotion(hero, potion) {
-  if (potion === "Poison") hurt(hero, rollDice("Potion poison", 1, 3));
+  if (potion === "Poison") hurt(hero, poison(hero, "Potion poison"));
   else if (potion === "Healing") heal(hero, rollDice("Potion healing"), true);
   else if (potion === "Strength") hero.strengthBonus = rollDice("Strength bonus");
   addLog(heroName(hero) + " drinks a " + potion + " potion.");
@@ -319,7 +340,8 @@ function weaponBonus(hero, weapon) {
     .map(skill => Number.parseInt(skill, 10) || 0));
   const magicBonus = Math.max(0, ...String(hero.items || "").split("\n").filter(item =>
     /^\+\d+ /.test(item) && item.replace(/^\+\d+ /, "") === weapon).map(item => Number.parseInt(item, 10)));
-  return bonus + magicBonus + Number(hero.combatModifier || 0) + Number(hero.strengthBonus || 0);
+  const dexterity = hasItem(hero,"Dexterity medallion") && ["Bow","Throwing Dagger"].includes(weapon) ? 2 : 0;
+  return bonus + magicBonus + dexterity + Number(hero.combatModifier || 0) + Number(hero.strengthBonus || 0);
 }
 function bestWeaponSlot(hero) {
   const thrown = state.scene.thrown[state.heroes.indexOf(hero)] || [];
@@ -347,10 +369,20 @@ function heroAttack(hero, target, slot) {
   if (weapon === "Throwing Dagger" && hero.rank === 2) {
     (scene.thrown[index] ||= []).push(slot);
   }
+  if (hero.cannabis && target.hp > 0) {
+    const second = bestWeaponSlot(hero);
+    if (second) {
+      const extra = hero["weapon" + second];
+      const wounds = combatDamage(extra,rollDice(heroName(hero) + " attacks again") + weaponBonus(hero,extra));
+      target.hp = Math.max(0,target.hp - wounds);
+      addLog(target.name + " takes " + wounds + " wound(s).");
+      if (extra === "Throwing Dagger" && hero.rank === 2) (scene.thrown[index] ||= []).push(second);
+    }
+  }
   advanceCombat(hero);
 }
-function spellAttack(hero, spell, target) {
-  spendSpell(hero, spell);
+function spellAttack(hero, spell, target, ring) {
+  if (ring) useRing(hero, ring); else spendSpell(hero, spell);
   if (spell === "Heal") heal(target, rollDice("Heal", 1, 3));
   else {
     const resistance = { "Evil Wizard":5, Vampire:4, Troll:3, Werewolf:3, Gargoyle:3, Mummy:3,
@@ -361,17 +393,50 @@ function spellAttack(hero, spell, target) {
   }
   advanceCombat(hero);
 }
+function charmChoices(hero, targets, inCombat) {
+  return ["Charm Person potion","Charm Monster potion"].flatMap(item => {
+    if (!hasItem(hero,item)) return [];
+    const humanoids = ["Evil Hero","Evil Wizard","Evil Thief","Orc","Goblin"];
+    return targets.filter(monster => humanoids.includes(monster.name) === (item === "Charm Person potion"))
+      .map(monster => ({ label: heroName(hero) + " uses " + item + " → " + targetName(monster), run: () => {
+        consumeItem(hero,item);
+        const resistance = { "Evil Wizard":5,Vampire:4,Troll:3,Werewolf:3,Gargoyle:3,Mummy:3,
+          "Evil Hero":2,Ogre:2,Medusa:2,Hellhound:2 }[monster.name] || 1;
+        const scene = state.scene;
+        if (rollDice(monster.name + " resists charm") > resistance) {
+          (hero.charmedAllies ||= []).push({ ...monster });
+          scene.monsters = scene.monsters.filter(other => other !== monster);
+          if (scene.loot) delete scene.loot;
+          scene.bribe = 0;
+          addLog(monster.name + " joins " + heroName(hero) + " as a charmed ally.");
+          if (!scene.monsters.length && !inCombat) return finishEncounter();
+        } else addLog(monster.name + " resists the potion.");
+        if (inCombat) advanceCombat(hero);
+      }}));
+  });
+}
+
 function advanceCombat(hero) {
   const scene = state.scene;
   if (hero) scene.acted.push(state.heroes.indexOf(hero));
   if (!scene.monsters.some(monster => monster.hp > 0)) {
     const survivors = living();
     const xp = Math.floor(scene.monsters.reduce((sum, monster) => sum + monster.max, 0) * 6 / survivors.length);
-    survivors.forEach(member => { member.xp = Number(member.xp || 0) + xp; delete member.strengthBonus; });
+    survivors.forEach(member => { member.xp = Number(member.xp || 0) + xp; delete member.strengthBonus; delete member.cannabis; });
     addLog("The party wins. Each survivor gains " + xp + " XP.");
     return beginLoot(scene.loot || scene.monsters.map(monster => treasure(monster.kind)));
   }
   if (activeHero() && monsterFront().length) return;
+  for (const ally of living().flatMap(member => member.charmedAllies || [])) {
+    const target = monsterFront()[0];
+    if (!target) break;
+    const armed = typeof ally.attack === "string";
+    const damage = combatDamage(armed ? ally.attack : "Monster",
+      rollDice(ally.name + " ally attacks") + (armed ? ally.sword : ally.attack));
+    target.hp = Math.max(0,target.hp - damage);
+    addLog(target.name + " takes " + damage + " wound(s).");
+  }
+  if (!scene.monsters.some(monster => monster.hp > 0)) return advanceCombat();
   let front = living().filter(member => member.rank === 1);
   const targets = () => front.filter(member => member.wounds > 0);
   const attackers = monsterFront();
@@ -383,6 +448,14 @@ function advanceCombat(hero) {
     const target = choices.length === 1 ? choices[0] :
       choices[Math.floor((rollDice("Monster target") - 1) * choices.length / 6)];
     const total = rollDice(monster.name + " attacks") + (typeof monster.attack === "number" ? monster.attack : monster.sword);
+    if (monster.name === "Evil Wizard" && !monster.usedLightning) {
+      monster.usedLightning = true;
+      const resistance = Math.min(5, Number(target.resistance || 0) +
+        (hasItem(target,"Resistance +2 ring") ? 2 : hasItem(target,"Resistance +1 ring") ? 1 : 0));
+      if (rollDice(heroName(target) + " resists Lightning") > resistance) hurt(target,rollDice("Lightning") + 2);
+      else addLog(heroName(target) + " resists Lightning.");
+      continue;
+    }
     hurt(target, combatDamage(typeof monster.attack === "number" ? "Monster" : monster.attack, total));
   }
   for (const monster of scene.monsters.filter(member => member.hp > 0 && !scene.front.includes(member.id) &&
@@ -393,6 +466,14 @@ function advanceCombat(hero) {
     hurt(target, combatDamage("Bow", rollDice(monster.name + " shoots")));
   }
   if (!living().length) return continueScene("defeat");
+  for (const fallen of state.heroes.filter(member => Number(member.wounds) <= 0)) {
+    for (const ally of fallen.charmedAllies || []) {
+      const id = Math.max(-1,...scene.monsters.map(monster => monster.id)) + 1;
+      scene.monsters.push({ ...ally, id, kind:"A" });
+      addLog(ally.name + " breaks free and turns on the party.");
+    }
+    delete fallen.charmedAllies;
+  }
   scene.front = monsterFront().map(monster => monster.id);
   if (scene.front.length < 3) {
     const next = scene.monsters.find(monster => monster.hp > 0 && !scene.front.includes(monster.id));
@@ -426,7 +507,7 @@ function magicActions() {
         if (edge(segmentAt(state.party), direction) !== "door" ||
             (next && edge(next, (direction + 2) % 4) !== "door")) continue;
         const lock = doorKey(state.party, position);
-        if (state.lockedDoors?.includes(lock)) continue;
+        if (state.lockedDoors?.includes(lock) || state.peggedDoors?.includes(lock)) continue;
         const heading = ["north", "east", "south", "west"][direction];
         actions.push({ label: heroName(hero) + " locks the " + heading + " door", run: () => {
           spendSpell(hero, "Lock");
@@ -440,15 +521,30 @@ function magicActions() {
       for (const target of living()) actions.push({ label: heroName(hero) + " casts Heal on " + heroName(target),
         run: () => { spendSpell(hero,"Heal"); heal(target, rollDice("Heal")); state.scene = null; } });
     }
-    for (const item of ["Healing potion","Mustard","Strength potion","Spinach"]) {
+    for (const item of ["Healing potion","Mustard","Strength potion","Poison potion","Sesame","Cloves"]) {
       const items = String(hero.items || "").split("\n");
-      if (!items.includes(item)) continue;
+      if (!items.includes(item) || (item === "Sesame" && state.preparedSesame) || (item === "Cloves" && state.preparedCloves)) continue;
       actions.push({ label: heroName(hero) + " uses " + item, run: () => {
-        items.splice(items.indexOf(item), 1);
-        hero.items = items.join("\n");
-        applyPotion(hero, ["Mustard","Healing potion"].includes(item) ? "Healing" : "Strength");
-        state.scene = null;
+        consumeItem(hero,item);
+        if (item === "Sesame" || item === "Cloves") {
+          if (item === "Sesame") state.preparedSesame = true;
+          else state.preparedCloves = true;
+          addLog(item + " is ready for the next applicable encounter.");
+        } else {
+          const potion = item === "Mustard" ? "Healing" : item.replace(/ potion$/, "");
+          applyPotion(hero,potion);
+        }
+        state.scene = living().length ? null : { phase:"defeat" };
       } });
+    }
+    if (ringReady(hero,"Heal ring")) {
+      for (const target of living()) actions.push({label: heroName(hero) + " uses Heal ring on " + heroName(target), run: () => {
+        useRing(hero,"Heal ring"); heal(target,rollDice("Heal ring"),true); state.scene = null;
+      }});
+    }
+    for (const item of hero.unknownItems || []) {
+      for (const tester of living()) actions.push({label: "Test unknown " + item.type + " from " + heroName(hero) + " with " + heroName(tester),
+        run: () => { testItem(hero,item,tester); state.scene = living().length ? null : { phase:"defeat" }; }});
     }
     return actions;
   });
@@ -461,7 +557,11 @@ function sceneView() {
   if (!scene) return null;
   switch (scene.phase) {
     case "magic":
-      return ["Use magic", "Choose a spell or item.", [...magicActions(), action("Cancel", () => { state.scene = null; })]];
+      {
+        const choices = magicActions();
+        return ["Use magic", choices.length ? "Choose a spell or item." : "No spells or items are available here.",
+          [...choices, action("Close", () => { state.scene = null; })]];
+      }
     case "unlock":
       return ["Open the locked door?", "Choose a Thief to pick the lock.", [
         ...people("Pick lock with ", hero => {
@@ -476,12 +576,29 @@ function sceneView() {
       ]];
     case "trap":
       return ["A trap is armed", "Choose an adventurer to deal with it.", [
+        ...(state.preparedSesame || living().some(hero => hasItem(hero,"Sesame")) ? [action("Use Sesame", () => {
+          if (state.preparedSesame) state.preparedSesame = false;
+          else consumeItem(living().find(hero => hasItem(hero,"Sesame")),"Sesame");
+          trap(living()[0],false,true);
+        })] : []),
         ...people("Detrap with ", hero => trap(hero, true), living().filter(hero => hero.class === "Thief")),
         ...people("Open with ", hero => trap(hero, false))
       ]];
     case "encounter":
       return ["Monsters ahead", scene.monsters.length + " × " + scene.monsters[0].name, [
         action("Fight", startCombat), action("Negotiate", () => negotiate()),
+        ...living().flatMap(hero => charmChoices(hero,scene.monsters.filter(monster => monster.hp > 0),false)),
+        ...(scene.wandering ? unknownItems().filter(({item}) => !scene.askedItems?.includes(item.id))
+          .map(({hero,item}) => action("Ask about " + heroName(hero) + "’s unknown " + item.type, () => askAboutItem(item))) : []),
+        ...(scene.exit === "door" && scene.from && (state.preparedCloves || living().some(hero => hasItem(hero,"Cloves")))
+          ? [action("Use Cloves and retreat", () => {
+            if (state.preparedCloves) state.preparedCloves = false;
+            else consumeItem(living().find(hero => hasItem(hero,"Cloves")),"Cloves");
+            (state.peggedDoors ||= []).push(doorKey(scene.from,scene.position));
+            (state.sealedEncounters ||= {})[scene.position] = scene;
+            state.party = state.selected = scene.from;
+            state.scene = null;
+          })] : []),
         ...people("Cast Oratory with ", hero => negotiate(hero), living().filter(hero => canCast(hero,"Oratory")))
       ]];
     case "agreement":
@@ -496,7 +613,10 @@ function sceneView() {
         action("Move on", () => { state.scene = null; })
       ]];
     case "loot":
-      return ["Assign treasure", "Who carries the " + scene.items[0] + "?", people("Give to ", giveItem)];
+      return ["Assign treasure", itemText(scene.items[0]), [
+        ...people(typeof scene.items[0] === "string" ? "Give to " : "Carry unknown with ", giveItem),
+        ...(typeof scene.items[0] === "string" ? [] : people("Test now with ", hero => giveItem(hero,true)))
+      ]];
     case "arm":
       beginPartyAttacks();
       return sceneView();
@@ -513,7 +633,22 @@ function sceneView() {
       const spells = ["Blast","Lightning","Sleep"].filter(spell => canCast(hero,spell)).flatMap(spell =>
         front.map(target => action(spell + " → " + targetName(target), () => spellAttack(hero,spell,target))));
       return ["Combat · Round " + scene.round, heroName(hero) + " · " + hero.wounds + " WP", [
-        ...attacks, ...spells, action("Pass", () => advanceCombat(hero))
+        ...attacks, ...spells, ...charmChoices(hero,front,true),
+        ...["Blast","Sleep"].flatMap(spell => ringReady(hero,spell + " ring")
+          ? front.map(target => action(spell + " ring → " + targetName(target), () => spellAttack(hero,spell,target,spell + " ring"))) : []),
+        ...["Spinach","Cannabis"].filter(item => hasItem(hero,item) &&
+          !(item === "Cannabis" ? hero.cannabis : hero.strengthBonus)).map(item => action("Use " + item, () => {
+          consumeItem(hero,item);
+          if (item === "Cannabis") hero.cannabis = true;
+          else hero.strengthBonus = rollDice("Spinach attack bonus");
+        })),
+        ...(hero.rank === 1 && hasItem(hero,"Red Pepper") ? targets.map(target =>
+          action("Red Pepper → " + targetName(target), () => {
+            consumeItem(hero,"Red Pepper");
+            target.hp = Math.max(0,target.hp - rollDice("Red Pepper fire wounds"));
+            advanceCombat(hero);
+          })) : []),
+        action("Pass", () => advanceCombat(hero))
       ]];
     }
     case "rally":
