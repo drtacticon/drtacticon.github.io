@@ -94,13 +94,15 @@ function art(piece) {
   const counter = counters[piece.id];
   const tile = document.createElement("span");
   tile.className = "chit";
+  if (counter.cup) tile.classList.add("segment");
   tile.title = label(piece.id);
   if (piece.id >= gateId) {
     tile.classList.add(piece.id === gateId ? "gate" : "approach");
     tile.style.transform = `rotate(${piece.rotation * 90}deg)`;
     return tile;
   }
-  tile.style.backgroundPosition = `-${23 + counter.column * 48.2}px -${sheetRows[counter.row] - 22}px`;
+  tile.style.setProperty("--sprite-x", (23 + counter.column * 48.2) / (1050 - 44) * 100 + "%");
+  tile.style.setProperty("--sprite-y", (sheetRows[counter.row] - 22) / (812 - 44) * 100 + "%");
   tile.style.transform = `rotate(${piece.rotation * 90}deg)`;
   tile.style.filter = counter.cup ? "sepia(.6)" : counter.row < 2 && counter.column < 5 ? "sepia(.2)" : "sepia(.8)";
   return tile;
@@ -243,7 +245,7 @@ const fields = [
   ["name", "Name"], ["class", "Class"], ["wounds", "Wound points", "number"],
   ["resistance", "Magic resistance", "number"], ["weapon1", "Weapon 1"], ["weapon2", "Weapon 2"],
   ["skill", "Weapon 1 Skill"], ["skill2", "Weapon 2 Skill"], ["xp", "Experience", "number"], ["gold", "Bezants / gem value", "number"],
-  ["spells", "Class skill / spell"], ["items", "Magic items & notes", "wide"]
+  ["spells", "Detrap skill / spell"], ["items", "Magic items & notes", "wide"]
 ];
 const roles = ["Hero", "Thief", "Wizard"];
 const weapons = ["Sword", "Axe", "Hammer", "Bow", "Dagger", "Throwing Dagger"];
@@ -301,9 +303,8 @@ function skillChoices(weapon) {
 
 function addTraining(container, hero, property, label, options, primary) {
   const entries = hero[property] || [];
-  const distinctKey = value => property === "extraSkills" ? value.replace(/^\+\d+ /, "") : value;
-  const used = new Set([primary, ...entries].map(distinctKey));
-  const available = options.filter(option => !used.has(distinctKey(option)));
+  const used = new Set([primary, ...entries]);
+  const available = options.filter(option => !used.has(option));
   const group = document.createElement("div");
   group.className = "actions";
   for (const [index, entry] of entries.entries()) {
@@ -351,8 +352,9 @@ function renderHeroes() {
     const inputs = document.createElement("div");
     inputs.className = "fields";
     for (const [property, title, type] of fields) {
+      if (property === "spells" && hero.class === "Hero") continue;
       const label = document.createElement("label");
-      label.textContent = title;
+      label.textContent = property === "spells" ? (hero.class === "Wizard" ? "Starting spell" : "Detrap skill") : title;
       const permittedWeapons = hero.class === "Wizard" ? wizardWeapons : weapons;
       const choices = {
         class: roles.filter(role => role === hero.class || rankOptions(role, hero).length),
@@ -415,13 +417,17 @@ function renderHeroes() {
       };
       actions.append(button);
     }
-    const training = document.createElement("div");
-    training.className = "training";
-    const weaponSkills = (hero.class === "Wizard" ? wizardWeapons : weapons)
-      .flatMap(weapon => Array.from({ length: 6 }, (_, index) => "+" + (index + 1) + " " + weapon));
-    addTraining(training, hero, "extraSkills", "Weapon skill", weaponSkills, hero.skill);
-    if (hero.class === "Wizard") addTraining(training, hero, "extraSpells", "Spell", wizardSpells, hero.spells);
-    card.append(title, rank, inputs, training, actions);
+    card.append(title, rank, inputs);
+    if (hero.class === "Wizard") {
+      const training = document.createElement("div");
+      training.className = "training";
+      const heading = document.createElement("h4");
+      heading.textContent = "Spells";
+      training.append(heading);
+      addTraining(training, hero, "extraSpells", "Spell", wizardSpells, hero.spells);
+      card.append(training);
+    }
+    card.append(actions);
     return card;
   });
   const ranks = [1, 2];
