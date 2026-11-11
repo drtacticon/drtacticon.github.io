@@ -10,3 +10,6 @@
 /* The Chopping Mall collection entry. */
 @media(min-width:1101px){.games{grid-template-columns:repeat(3,minmax(0,1fr))}.title-row h2{font-size:clamp(39px,3.5vw,55px)}.card-body{padding:24px}.card-footer{flex-wrap:wrap}.card-note{display:none}.game-description{min-height:72px}.genre{font-size:8px;letter-spacing:1px}}
 .chopping .genre,.chopping .period{color:#e57950}.chopping .play-button{background:#df794f}.chopping .poster>img{object-position:50% 29%}.mall-mark{font:52px/1 monospace;color:#d879505b}.chopping .title-row{gap:4px}.chopping .play-button{gap:12px}
+
+@media(min-width:1101px){.games{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.game-card{display:flex;flex-direction:column}.card-body{display:flex;flex-direction:column;flex:1}.card-footer{margin-top:auto}.deathmaze .genre,.deathmaze .period{color:#edbf67}.deathmaze .play-button{background:#edbf67}.deathmaze .game-description+.game-description{margin-top:-12px}
