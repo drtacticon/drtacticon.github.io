@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const key = (x, y) => x + "," + y;
 const clone = value => JSON.parse(JSON.stringify(value));
 const storageKey = "deathmaze-table-v1";
+const partyStorageKey = "deathmaze-party-roster-v1";
 const names = [
   "Hero A|Hero B|Wizard A|Wizard B|Randomizer 1|Randomizer 2|Randomizer 3|Alligator|Cronk|Cronk",
   "Thief A|Thief B|Party|Randomizer 4|Randomizer 5|Randomizer 6|Evil Hero|Evil Thief|Evil Wizard|Gargoyle",
@@ -392,6 +393,7 @@ function renderHeroes() {
           renderAndSave();
         } else {
           hero[property] = field.value;
+          if (property === "wounds" && !state.entrance) hero.maxWounds = Number(field.value);
           if (property === "skill" || property === "skill2" || property === "spells") return renderAndSave();
           if (property === "name") title.textContent = field.value || hero.class;
           try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch {}
@@ -440,7 +442,77 @@ function renderHeroes() {
     return group;
   }));
 }
+function readParties() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(partyStorageKey) || "[]");
+    return Array.isArray(entries) ? entries : [];
+  } catch {
+    return [];
+  }
+}
+
+function renderPartyRoster() {
+  const select = $("saved-parties");
+  const previous = select.value;
+  const parties = readParties();
+  select.replaceChildren(new Option(parties.length ? "Choose a party" : "No saved parties", ""),
+    ...parties.map(party => new Option(party.name, party.name)));
+  if (parties.some(party => party.name === previous)) select.value = previous;
+  $("party-name").value = state.partyName || "";
+  $("load-party").disabled = !select.value;
+  $("save-party").disabled = !living().length || !$("party-name").value.trim();
+}
+
+$("party-name").oninput = () => {
+  state.partyName = $("party-name").value;
+  $("save-party").disabled = !living().length || !state.partyName.trim();
+  try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch {}
+};
+$("saved-parties").onchange = () => {
+  $("load-party").disabled = !$("saved-parties").value;
+};
+$("save-party").onclick = () => {
+  const name = $("party-name").value.trim();
+  const survivors = living();
+  if (!name || !survivors.length) return;
+  const parties = readParties();
+  const index = parties.findIndex(party => party.name === name);
+  const heroes = clone(survivors);
+  const party = { name, heroes };
+  if (index < 0) parties.push(party); else parties[index] = party;
+  try {
+    localStorage.setItem(partyStorageKey, JSON.stringify(parties));
+  } catch {
+    $("party-status").textContent = "Browser storage is unavailable. The party could not be saved.";
+    return;
+  }
+  state.partyName = name;
+  renderAndSave();
+  $("saved-parties").value = name;
+  $("load-party").disabled = false;
+  $("party-status").textContent = name + " saved with " + heroes.length + " surviving adventurer(s).";
+};
+$("load-party").onclick = () => {
+  const party = readParties().find(entry => entry.name === $("saved-parties").value);
+  if (!party) return;
+  if ((state.entrance || state.held || state.heroes.length) &&
+      !confirm("Start a fresh expedition with " + party.name + "? This replaces the current maze and active party.")) return;
+  state = fresh();
+  state.partyName = party.name;
+  state.heroes = clone(party.heroes).map(hero => {
+    hero.wounds = Math.max(Number(hero.maxWounds || { Hero:8, Thief:6, Wizard:4 }[hero.class]), Number(hero.wounds));
+    delete hero.spellWounds;
+    delete hero.combatModifier;
+    delete hero.strengthBonus;
+    return hero;
+  });
+  history = [];
+  $("party-status").textContent = party.name + " is ready for a new expedition.";
+  status("");
+};
+
 function render() {
+  renderPartyRoster();
   renderBoard();
   $("status").textContent = message || (state.entrance === null
     ? "Add your adventurers, then place the entrance gate."
@@ -513,6 +585,7 @@ $("reset").onclick = () => {
   if (!confirm("Clear this maze, party, and adventure log?")) return;
   state = fresh();
   history = [];
+  $("party-status").textContent = "";
   status("");
 };
 $("journal").onsubmit = event => {

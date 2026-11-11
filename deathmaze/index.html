@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DeathMaze • Digital Tabletop</title>
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=4">
 <header><div><a href="../">← Game Room</a><span class="edition">SIMULATIONS PUBLICATIONS · 1979</span><h1>DeathMaze</h1><p>Heroic Adventure in the Corridors of Doom</p></div><a href="https://www.spigames.net/PDFv3/DeathMaze%20.pdf" target="_blank" rel="noopener">Open SPI rulebook ↗</a></header>
 <main>
 <section class="table">
@@ -16,7 +16,15 @@
 <section><h2>Draw cups</h2><div id="cups" class="actions"></div><div id="held"></div></section>
 <section><h2>Counter supply</h2><select id="supply" aria-label="Available counter"></select><button id="take">Take</button></section>
 <section><h2>Adventure log</h2><p>Party treasure <strong id="party-treasure">0</strong> bezants</p><button id="magic">Use magic</button><form id="journal"><input id="note" aria-label="Adventure note" placeholder="Record an encounter or result" required><button>Add</button></form><ol id="log" aria-live="polite"></ol></section>
-<section class="records"><div class="toolbar"><h2>Marching order</h2><select id="add-class" aria-label="New adventurer class"><option>Hero</option><option>Thief</option><option>Wizard</option></select><button id="add">Add adventurer</button></div><div id="heroes"></div></section>
+<section class="records"><div class="toolbar"><h2>Marching order</h2><select id="add-class" aria-label="New adventurer class"><option>Hero</option><option>Thief</option><option>Wizard</option></select><button id="add">Add adventurer</button></div><div class="party-roster">
+  <label for="party-name">Party name</label>
+  <input id="party-name" maxlength="60" autocomplete="off" placeholder="Name your party">
+  <button id="save-party">Save party</button>
+  <label for="saved-parties">Saved parties</label>
+  <select id="saved-parties"></select>
+  <button id="load-party">Start with this party</button>
+  <p id="party-status" role="status"></p>
+</div><div id="heroes"></div></section>
 </aside>
 </main>
 <footer>Original counter artwork from the SPI Rules of Play. Dice roll automatically. Choose how your party responds when prompted.</footer>
@@ -25,5 +33,5 @@
   <p id="decision-roll"></p><div id="decision-actions"></div>
 </dialog>
 <script src="adventure.js?v=1"></script>
-<script src="game.js?v=3"></script>
+<script src="game.js?v=4"></script>
 </html>
