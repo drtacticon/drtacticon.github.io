@@ -35,7 +35,7 @@ const treasureTable = {
   J:[[6,1,6,20],[2,1,6],[3,1,3]]
 };
 const potionNames = ["Healing","Healing","Poison","Strength","Charm Person","Charm Monster"];
-const spellCost = { Blast:1, Charm:3, Explosion:1, Heal:2, Lightning:2, Lock:1,
+const spellCost = { Blast:1, Charm:3, Explosion:1, Heal:1, Lightning:2, Lock:1,
   "Mage Armor":1, "Neutralize Poison":1, Oratory:1, Sleep:2, Strength:2, "Stone-to-Flesh":3 };
 
 function rollDice(label, count = 1, sides = 6) {
@@ -262,13 +262,16 @@ function giveItem(hero) {
 }
 function applyPotion(hero, potion) {
   if (potion === "Poison") hurt(hero, rollDice("Potion poison", 1, 3));
-  else if (potion === "Healing") heal(hero, rollDice("Potion healing"));
+  else if (potion === "Healing") heal(hero, rollDice("Potion healing"), true);
   else if (potion === "Strength") hero.strengthBonus = rollDice("Strength bonus");
   addLog(heroName(hero) + " drinks a " + potion + " potion.");
 }
-function heal(hero, amount) {
+function heal(hero, amount, restoresSpellWounds = false) {
   const max = Number(hero.maxWounds || { Hero:8, Thief:6, Wizard:4 }[hero.class]);
-  hero.wounds = Math.max(Number(hero.wounds), Math.min(max - Number(hero.spellWounds || 0), Number(hero.wounds) + amount));
+  const spent = Number(hero.spellWounds || 0);
+  const cap = restoresSpellWounds ? max : max - spent;
+  hero.wounds = Math.max(Number(hero.wounds), Math.min(cap, Number(hero.wounds) + amount));
+  if (restoresSpellWounds) hero.spellWounds = Math.min(spent, Math.max(0, max - hero.wounds));
 }
 function knownSpells(hero) {
   return [hero.spells, ...(hero.extraSpells || [])].filter(spell => spell in spellCost);
@@ -284,11 +287,14 @@ function startCombat() {
   const scene = state.scene;
   scene.round = 1;
   scene.acted = [];
-  scene.weapons = {};
   scene.thrown = {};
   scene.front = scene.monsters.filter(monster => monster.hp > 0).slice(0, 3).map(monster => monster.id);
   if (!scene.front.length) return advanceCombat();
-  continueScene("arm");
+  beginPartyAttacks();
+}
+function beginPartyAttacks() {
+  state.scene.acted = [];
+  continueScene(living().some(member => member.rank === 1) ? "combat" : "rally");
 }
 function activeHero() {
   return living().find(hero => !state.scene.acted.includes(state.heroes.indexOf(hero)));
@@ -307,21 +313,39 @@ function opponents(index, attackers, targets) {
 function targetName(target) {
   return target.name + " " + (target.id + 1) + " (" + target.hp + " WP)";
 }
-function heroAttack(hero, target, slot) {
-  const scene = state.scene;
-  const index = state.heroes.indexOf(hero);
-  const weapon = hero["weapon" + slot];
+function weaponBonus(hero, weapon) {
   const skills = [hero.skill, hero.skill2, ...(hero.extraSkills || [])].filter(Boolean);
   const bonus = Math.max(0, ...skills.filter(skill => skill.replace(/^\+\d+ /, "") === weapon)
     .map(skill => Number.parseInt(skill, 10) || 0));
   const magicBonus = Math.max(0, ...String(hero.items || "").split("\n").filter(item =>
     /^\+\d+ /.test(item) && item.replace(/^\+\d+ /, "") === weapon).map(item => Number.parseInt(item, 10)));
-  const damage = combatDamage(weapon, rollDice(heroName(hero) + " attacks") + bonus + magicBonus + Number(hero.combatModifier || 0) + Number(hero.strengthBonus || 0));
+  return bonus + magicBonus + Number(hero.combatModifier || 0) + Number(hero.strengthBonus || 0);
+}
+function bestWeaponSlot(hero) {
+  const thrown = state.scene.thrown[state.heroes.indexOf(hero)] || [];
+  let bestSlot = 0;
+  let bestDamage = -1;
+  for (const slot of [1, 2]) {
+    const weapon = hero["weapon" + slot];
+    if (!weapon || thrown.includes(slot) || (hero.rank === 2 && !["Bow", "Throwing Dagger"].includes(weapon))) continue;
+    const bonus = weaponBonus(hero, weapon);
+    const damage = [1, 2, 3, 4, 5, 6].reduce((sum, roll) => sum + combatDamage(weapon, roll + bonus), 0);
+    if (damage > bestDamage) {
+      bestSlot = slot;
+      bestDamage = damage;
+    }
+  }
+  return bestSlot;
+}
+function heroAttack(hero, target, slot) {
+  const scene = state.scene;
+  const index = state.heroes.indexOf(hero);
+  const weapon = hero["weapon" + slot];
+  const damage = combatDamage(weapon, rollDice(heroName(hero) + " attacks") + weaponBonus(hero, weapon));
   target.hp = Math.max(0, target.hp - damage);
   addLog(target.name + " takes " + damage + " wound(s).");
   if (weapon === "Throwing Dagger" && hero.rank === 2) {
     (scene.thrown[index] ||= []).push(slot);
-    scene.weapons[index] = slot === 1 ? 2 : 1;
   }
   advanceCombat(hero);
 }
@@ -473,37 +497,21 @@ function sceneView() {
       ]];
     case "loot":
       return ["Assign treasure", "Who carries the " + scene.items[0] + "?", people("Give to ", giveItem)];
-    case "arm": {
-      const hero = activeHero();
-      const index = state.heroes.indexOf(hero);
-      return ["Prepare for combat", heroName(hero) + " · Choose a starting weapon.", [1,2]
-        .filter(slot => hero["weapon" + slot] || slot === 1)
-        .map(slot => action(hero["weapon" + slot] || "Ready", () => {
-          scene.weapons[index] = slot;
-          scene.acted.push(index);
-          if (!activeHero()) {
-            scene.acted = [];
-            continueScene(living().some(member => member.rank === 1) ? "combat" : "rally");
-          }
-        }))];
-    }
+    case "arm":
+      beginPartyAttacks();
+      return sceneView();
     case "combat": {
       const hero = activeHero();
-      const index = state.heroes.indexOf(hero);
-      const slot = scene.weapons[index] || 1;
+      const slot = bestWeaponSlot(hero);
       const weapon = hero["weapon" + slot];
       const front = monsterFront();
-      const ranged = ["Bow","Throwing Dagger"].includes(weapon);
       const partyFront = living().filter(member => member.rank === 1);
       const position = partyFront.indexOf(hero);
       const targets = hero.rank === 2 ? front : opponents(position, partyFront.length, front);
-      const attacks = weapon && (hero.rank === 1 || ranged) && !scene.thrown[index]?.includes(slot)
+      const attacks = weapon
         ? targets.map(target => action(weapon + " → " + targetName(target), () => heroAttack(hero,target,slot))) : [];
       const spells = ["Blast","Lightning","Sleep"].filter(spell => canCast(hero,spell)).flatMap(spell =>
         front.map(target => action(spell + " → " + targetName(target), () => spellAttack(hero,spell,target))));
-      const other = slot === 1 ? 2 : 1;
-      if (hero["weapon" + other] && !scene.thrown[index]?.includes(other)) attacks.push(
-        action("Switch to " + hero["weapon" + other], () => { scene.weapons[index] = other; advanceCombat(hero); }));
       return ["Combat · Round " + scene.round, heroName(hero) + " · " + hero.wounds + " WP", [
         ...attacks, ...spells, action("Pass", () => advanceCombat(hero))
       ]];
