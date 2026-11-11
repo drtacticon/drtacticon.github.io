@@ -66,6 +66,8 @@ function load() {
 }
 
 let state = load();
+state.log = state.log.filter(line => !line.startsWith("Wandering encounter check · ") &&
+  !/^Corridor \d+ · Sheet [12] placed via an open corridor\.$/.test(line));
 let history = [];
 let message = "";
 function renderAndSave() {
@@ -166,7 +168,7 @@ function explore(position, x, y, exit) {
     checkpoint();
     state.available = state.available.filter(availableId => availableId !== id);
     state.tiles[position] = [...(state.tiles[position] || []), piece];
-    addLog(label(id) + " placed via " + (exit === "door" ? "a doorway" : "an open corridor") + ".");
+    if (exit === "door") addLog(label(id) + " placed via a doorway.");
   } else {
     checkpoint();
   }

@@ -41,7 +41,7 @@ const spellCost = { Blast:1, Charm:3, Explosion:1, Heal:2, Lightning:2, Lock:1,
 function rollDice(label, count = 1, sides = 6) {
   const dice = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
   const total = dice.reduce((sum, result) => sum + result, 0);
-  addLog(label + " · " + count + "D" + sides + " → " + dice.join(" + "));
+  if (label) addLog(label + " · " + count + "D" + sides + " → " + dice.join(" + "));
   return total;
 }
 function living() {
@@ -76,7 +76,7 @@ function openScene(position, isNew, exit) {
 function checkEncounter() {
   const scene = state.scene;
   const inRoom = scene.room;
-  if (rollDice(inRoom ? "Room encounter check" : "Wandering encounter check") <= (inRoom ? 3 : 1)) {
+  if (rollDice(inRoom ? "Room encounter check" : null) <= (inRoom ? 3 : 1)) {
     const row = rollDice("Monster table row") - 1;
     const column = rollDice("Monster table column") - 1;
     const entry = inRoom ? rooms[row][column] : wanderers[row][Math.floor(column / 2)];
