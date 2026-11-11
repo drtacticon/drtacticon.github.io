@@ -191,7 +191,11 @@ function cellClick(position, x, y) {
     return status("Counter placed. Click a neighboring segment to move the party.");
   }
   const exit = moveType(x, y);
-  if (exit === "locked") return status("That door is locked.");
+  if (exit === "locked") {
+    if (!living().some(hero => hero.class === "Thief")) return status("A Thief is needed to open this door.");
+    state.scene = { phase: "unlock", door: doorKey(state.party, position) };
+    return status("Choose a Thief to open the locked door.");
+  }
   if (exit) return explore(position, x, y, exit);
   state.selected = position;
   status(stack?.length ? label(stack.at(-1).id) : "Choose a draw cup or take a counter from the supply.");

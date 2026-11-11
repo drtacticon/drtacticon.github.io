@@ -438,6 +438,18 @@ function sceneView() {
   switch (scene.phase) {
     case "magic":
       return ["Use magic", "Choose a spell or item.", [...magicActions(), action("Cancel", () => { state.scene = null; })]];
+    case "unlock":
+      return ["Open the locked door?", "Choose a Thief to pick the lock.", [
+        ...people("Pick lock with ", hero => {
+          const skill = Number.parseInt(hero.spells, 10) || 0;
+          const success = rollDice("Pick lock · " + heroName(hero)) <= skill;
+          if (success) state.lockedDoors = state.lockedDoors.filter(door => door !== scene.door);
+          addLog(success ? "The door is unlocked." : "The door is still locked.");
+          state.scene = null;
+          message = success ? "The door is unlocked. Choose the yellow square to enter." : "The door is still locked.";
+        }, living().filter(hero => hero.class === "Thief")),
+        action("Cancel", () => { state.scene = null; })
+      ]];
     case "trap":
       return ["A trap is armed", "Choose an adventurer to deal with it.", [
         ...people("Detrap with ", hero => trap(hero, true), living().filter(hero => hero.class === "Thief")),
